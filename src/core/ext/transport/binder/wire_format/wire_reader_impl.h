@@ -31,9 +31,9 @@ namespace grpc_binder {
 
 class WireReaderImpl : public WireReader {
  public:
-  explicit WireReaderImpl(
+  WireReaderImpl(
       std::shared_ptr<TransportStreamReceiver> transport_stream_receiver,
-      bool is_client);
+      bool is_client, std::function<void()> on_destruct_callback = nullptr);
   ~WireReaderImpl() override;
 
   void Orphan() override { Unref(); }
@@ -105,6 +105,9 @@ class WireReaderImpl : public WireReader {
   absl::flat_hash_map<transaction_code_t, int32_t> expected_seq_num_;
   std::unique_ptr<TransactionReceiver> tx_receiver_;
   bool is_client_;
+  // When WireReaderImpl gets destructed, call on_destruct_callback_. This is
+  // mostly for decrementing the reference count of its transport.
+  std::function<void()> on_destruct_callback_;
 };
 
 }  // namespace grpc_binder
