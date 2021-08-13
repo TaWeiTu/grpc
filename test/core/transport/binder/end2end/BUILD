@@ -88,6 +88,7 @@ grpc_cc_library(
 
 grpc_cc_test(
     name = "end2end_binder_transport_test",
+    timeout = "moderate",
     srcs = ["end2end_binder_transport_test.cc"],
     external_deps = [
         "absl/memory",
@@ -95,7 +96,6 @@ grpc_cc_test(
         "gtest",
     ],
     language = "C++",
-    timeout = "moderate",
     deps = [
         ":echo_service",
         ":end2end_binder_channel",
