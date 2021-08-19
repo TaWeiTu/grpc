@@ -12,197 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <fuzzer/FuzzedDataProvider.h>
+#include <grpc/grpc.h>
 
-#include <thread>
-#include <utility>
-
-#include "absl/memory/memory.h"
 #include "src/core/ext/transport/binder/transport/binder_transport.h"
-#include "src/core/ext/transport/binder/wire_format/binder.h"
-#include "src/core/ext/transport/binder/wire_format/wire_reader.h"
 #include "src/core/lib/iomgr/executor.h"
 #include "src/core/lib/surface/channel.h"
+#include "test/core/transport/binder/end2end/fuzzers/fuzzer_utils.h"
 
 bool squelch = true;
 bool leak_check = true;
 
-namespace {
+static void* tag(intptr_t t) { return reinterpret_cast<void*>(t); }
 
-// A WritableParcel implementation that simply does nothing. Don't use
-// MockWritableParcel here since capturing calls is expensive.
-class NoOpWritableParcel : public grpc_binder::WritableParcel {
- public:
-  int32_t GetDataPosition() const override { return 0; }
-  absl::Status SetDataPosition(int32_t /*pos*/) override {
-    return absl::OkStatus();
-  }
-  absl::Status WriteInt32(int32_t /*data*/) override {
-    return absl::OkStatus();
-  }
-  absl::Status WriteBinder(grpc_binder::HasRawBinder* /*binder*/) override {
-    return absl::OkStatus();
-  }
-  absl::Status WriteString(absl::string_view /*s*/) override {
-    return absl::OkStatus();
-  }
-  absl::Status WriteByteArray(const int8_t* /*buffer*/,
-                              int32_t /*length*/) override {
-    return absl::OkStatus();
-  }
-};
-
-// Binder implementation used in fuzzing.
-//
-// Most of its the functionalities are no-op, except ConstructTxReceiver now
-// returns a FuzzedTransactionReceiver.
-class FuzzedBinder : public grpc_binder::Binder {
- public:
-  FuzzedBinder() : input_(absl::make_unique<NoOpWritableParcel>()) {}
-
-  FuzzedBinder(const uint8_t* data, size_t size)
-      : data_(data),
-        size_(size),
-        input_(absl::make_unique<NoOpWritableParcel>()) {}
-
-  void Initialize() override {}
-  absl::Status PrepareTransaction() override { return absl::OkStatus(); }
-
-  absl::Status Transact(
-      grpc_binder::BinderTransportTxCode /*tx_code*/) override {
-    return absl::OkStatus();
-  }
-
-  std::unique_ptr<grpc_binder::TransactionReceiver> ConstructTxReceiver(
-      grpc_core::RefCountedPtr<grpc_binder::WireReader> wire_reader_ref,
-      grpc_binder::TransactionReceiver::OnTransactCb cb) const override;
-
-  grpc_binder::ReadableParcel* GetReadableParcel() const override {
-    return nullptr;
-  }
-  grpc_binder::WritableParcel* GetWritableParcel() const override {
-    return input_.get();
-  }
-  void* GetRawBinder() override { return nullptr; }
-
- private:
-  const uint8_t* data_;
-  size_t size_;
-  std::unique_ptr<grpc_binder::WritableParcel> input_;
-};
-
-// ReadableParcel implementation used in fuzzing.
-//
-// It consumes a FuzzedDataProvider, and returns fuzzed data upon user's
-// requests.
-class FuzzedReadableParcel : public grpc_binder::ReadableParcel {
- public:
-  FuzzedReadableParcel(FuzzedDataProvider* data_provider,
-                       bool is_setup_transport)
-      : data_provider_(data_provider),
-        is_setup_transport_(is_setup_transport) {}
-
-  absl::Status ReadInt32(int32_t* data) const override {
-    if (!is_setup_transport_ && data_provider_->ConsumeBool()) {
-      return absl::InternalError("error");
-    }
-    *data = data_provider_->ConsumeIntegral<int32_t>();
-    return absl::OkStatus();
-  }
-  absl::Status ReadBinder(
-      std::unique_ptr<grpc_binder::Binder>* binder) const override {
-    if (!is_setup_transport_ && data_provider_->ConsumeBool()) {
-      return absl::InternalError("error");
-    }
-    *binder = absl::make_unique<FuzzedBinder>();
-    return absl::OkStatus();
-  }
-  absl::Status ReadByteArray(std::string* data) const override {
-    if (!is_setup_transport_ && data_provider_->ConsumeBool()) {
-      return absl::InternalError("error");
-    }
-    *data = data_provider_->ConsumeRandomLengthString(100);
-    return absl::OkStatus();
-  }
-  absl::Status ReadString(char data[111]) const override {
-    if (!is_setup_transport_ && data_provider_->ConsumeBool()) {
-      return absl::InternalError("error");
-    }
-    std::string s = data_provider_->ConsumeRandomLengthString(100);
-    std::memcpy(data, s.data(), s.size());
-    return absl::OkStatus();
-  }
-
- private:
-  FuzzedDataProvider* data_provider_;
-  bool is_setup_transport_;
-};
-
-std::vector<std::thread>* thread_pool = nullptr;
-
-void FuzzingLoop(
-    const uint8_t* data, size_t size,
-    grpc_core::RefCountedPtr<grpc_binder::WireReader> wire_reader_ref,
-    grpc_binder::TransactionReceiver::OnTransactCb callback) {
-  FuzzedDataProvider data_provider(data, size);
-  std::unique_ptr<grpc_binder::ReadableParcel> parcel =
-      absl::make_unique<FuzzedReadableParcel>(&data_provider,
-                                              /*is_setup_transport=*/true);
-  callback(static_cast<transaction_code_t>(
-               grpc_binder::BinderTransportTxCode::SETUP_TRANSPORT),
-           parcel.get())
-      .IgnoreError();
-  while (data_provider.remaining_bytes() > 0) {
-    gpr_log(GPR_INFO, "Fuzzing");
-    bool streaming_call = data_provider.ConsumeBool();
-    transaction_code_t tx_code =
-        streaming_call
-            ? data_provider.ConsumeIntegralInRange<transaction_code_t>(
-                  0, static_cast<transaction_code_t>(
-                         grpc_binder::BinderTransportTxCode::PING_RESPONSE))
-            : data_provider.ConsumeIntegralInRange<transaction_code_t>(
-                  0, LAST_CALL_TRANSACTION);
-    std::unique_ptr<grpc_binder::ReadableParcel> parcel =
-        absl::make_unique<FuzzedReadableParcel>(&data_provider,
-                                                /*is_setup_transport=*/false);
-    callback(tx_code, parcel.get()).IgnoreError();
-  }
-  gpr_log(GPR_INFO, "Fuzzing done");
-  wire_reader_ref = nullptr;
-}
-
-// TransactionReceiver implementation used in fuzzing.
-//
-// When constructed, start sending fuzzed requests to the client. When all the
-// bytes are consumed, the reference to WireReader will be released.
-class FuzzedTransactionReceiver : public grpc_binder::TransactionReceiver {
- public:
-  FuzzedTransactionReceiver(
-      const uint8_t* data, size_t size,
-      grpc_core::RefCountedPtr<grpc_binder::WireReader> wire_reader_ref,
-      grpc_binder::TransactionReceiver::OnTransactCb cb) {
-    gpr_log(GPR_INFO, "Construct FuzzedTransactionReceiver");
-    thread_pool->emplace_back(FuzzingLoop, data, size, wire_reader_ref, cb);
-  }
-
-  void* GetRawBinder() override { return nullptr; }
-};
-
-std::unique_ptr<grpc_binder::TransactionReceiver>
-FuzzedBinder::ConstructTxReceiver(
-    grpc_core::RefCountedPtr<grpc_binder::WireReader> wire_reader_ref,
-    grpc_binder::TransactionReceiver::OnTransactCb cb) const {
-  return absl::make_unique<FuzzedTransactionReceiver>(data_, size_,
-                                                      wire_reader_ref, cb);
-}
-
-void* tag(intptr_t t) { return reinterpret_cast<void*>(t); }
-void dont_log(gpr_log_func_args*) {}
-
-}  // namespace
+static void dont_log(gpr_log_func_args*) {}
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
-  thread_pool = new std::vector<std::thread>();
+  grpc_binder::fuzzing::g_thread_pool = new std::vector<std::thread>();
   grpc_test_only_set_slice_hash_seed(0);
   if (squelch) gpr_set_log_function(dont_log);
   grpc_init();
@@ -213,7 +38,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
 
     grpc_completion_queue* cq = grpc_completion_queue_create_for_next(nullptr);
     grpc_transport* client_transport = grpc_create_binder_transport_client(
-        absl::make_unique<FuzzedBinder>(data, size));
+        absl::make_unique<grpc_binder::fuzzing::FuzzedBinder>(data, size));
     grpc_arg authority_arg = grpc_channel_arg_string_create(
         const_cast<char*>(GRPC_ARG_DEFAULT_AUTHORITY),
         const_cast<char*>("test-authority"));
@@ -289,7 +114,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
     if (requested_calls) {
       grpc_call_cancel(call, nullptr);
     }
-    for (auto& thr : *thread_pool) {
+    for (auto& thr : *grpc_binder::fuzzing::g_thread_pool) {
       thr.join();
     }
     for (int i = 0; i < requested_calls; i++) {
@@ -313,7 +138,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
       grpc_byte_buffer_destroy(response_payload_recv);
     }
   }
-  delete thread_pool;
+  delete grpc_binder::fuzzing::g_thread_pool;
   grpc_shutdown();
   return 0;
 }
