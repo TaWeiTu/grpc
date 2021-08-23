@@ -32,7 +32,7 @@ namespace grpc_binder {
 class WireWriter {
  public:
   virtual ~WireWriter() = default;
-  virtual absl::Status RpcCall(const Transaction& call) = 0;
+  virtual absl::Status RpcCall(Transaction call) = 0;
   virtual absl::Status SendAck(int64_t num_bytes) = 0;
   virtual void RecvAck(int64_t num_bytes) = 0;
 };
@@ -40,7 +40,7 @@ class WireWriter {
 class WireWriterImpl : public WireWriter {
  public:
   explicit WireWriterImpl(std::unique_ptr<Binder> binder);
-  absl::Status RpcCall(const Transaction& tx) override;
+  absl::Status RpcCall(Transaction tx) override;
   absl::Status SendAck(int64_t num_bytes) override;
   void RecvAck(int64_t num_bytes) override;
 
