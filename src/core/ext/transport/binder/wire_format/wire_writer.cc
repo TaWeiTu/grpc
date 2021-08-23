@@ -37,9 +37,9 @@ absl::Status WireWriterImpl::WriteInitialMetadata(const Transaction& tx,
     RETURN_IF_ERROR(parcel->WriteString(tx.GetMethodRef()));
   }
   RETURN_IF_ERROR(parcel->WriteInt32(tx.GetPrefixMetadata().size()));
-  for (const auto& md : tx.GetPrefixMetadata()) {
-    RETURN_IF_ERROR(parcel->WriteByteArrayWithLength(md.first));
-    RETURN_IF_ERROR(parcel->WriteByteArrayWithLength(md.second));
+  for (const auto& kv : tx.GetPrefixMetadata()) {
+    RETURN_IF_ERROR(parcel->WriteByteArrayWithLength(kv.ViewKey()));
+    RETURN_IF_ERROR(parcel->WriteByteArrayWithLength(kv.ViewValue()));
   }
   return absl::OkStatus();
 }
@@ -51,9 +51,9 @@ absl::Status WireWriterImpl::WriteTrailingMetadata(const Transaction& tx,
       RETURN_IF_ERROR(parcel->WriteString(tx.GetStatusDesc()));
     }
     RETURN_IF_ERROR(parcel->WriteInt32(tx.GetSuffixMetadata().size()));
-    for (const auto& md : tx.GetSuffixMetadata()) {
-      RETURN_IF_ERROR(parcel->WriteByteArrayWithLength(md.first));
-      RETURN_IF_ERROR(parcel->WriteByteArrayWithLength(md.second));
+    for (const auto& kv : tx.GetSuffixMetadata()) {
+      RETURN_IF_ERROR(parcel->WriteByteArrayWithLength(kv.ViewKey()));
+      RETURN_IF_ERROR(parcel->WriteByteArrayWithLength(kv.ViewValue()));
     }
   } else {
     // client suffix currently is always empty according to the wireformat
@@ -67,13 +67,14 @@ absl::Status WireWriterImpl::WriteTrailingMetadata(const Transaction& tx,
 const int64_t WireWriterImpl::kBlockSize = 16 * 1024;
 const int64_t WireWriterImpl::kFlowControlWindowSize = 128 * 1024;
 
-absl::Status WireWriterImpl::RpcCall(const Transaction& tx) {
+absl::Status WireWriterImpl::RpcCall(Transaction tx) {
   // TODO(mingcl): check tx_code <= last call id
   grpc_core::MutexLock lock(&mu_);
   GPR_ASSERT(tx.GetTxCode() >= kFirstCallId);
   int& seq = seq_num_[tx.GetTxCode()];
+  // If there's no message data or the message data is completely empty.
   if ((tx.GetFlags() & kFlagMessageData) == 0 ||
-      tx.GetMessageData().size() <= kBlockSize) {
+      tx.GetMessageData()->count == 0) {
     // Fast path: send data in one transaction.
     RETURN_IF_ERROR(binder_->PrepareTransaction());
     WritableParcel* parcel = binder_->GetWritableParcel();
@@ -83,7 +84,8 @@ absl::Status WireWriterImpl::RpcCall(const Transaction& tx) {
       RETURN_IF_ERROR(WriteInitialMetadata(tx, parcel));
     }
     if (tx.GetFlags() & kFlagMessageData) {
-      RETURN_IF_ERROR(parcel->WriteByteArrayWithLength(tx.GetMessageData()));
+      // Empty message. Only send 0 as its length.
+      RETURN_IF_ERROR(parcel->WriteInt32(0));
     }
     if (tx.GetFlags() & kFlagSuffix) {
       RETURN_IF_ERROR(WriteTrailingMetadata(tx, parcel));
@@ -92,47 +94,58 @@ absl::Status WireWriterImpl::RpcCall(const Transaction& tx) {
     // is an undefined behavior.
     return binder_->Transact(BinderTransportTxCode(tx.GetTxCode()));
   }
-  // Slow path: the message data is too large to fit in one transaction.
+  // Slow path: we have non-empty message data to be sent.
   int original_flags = tx.GetFlags();
   GPR_ASSERT(original_flags & kFlagMessageData);
-  absl::string_view data = tx.GetMessageData();
-  size_t ptr = 0;
-  while (ptr < data.size()) {
-    while (num_outgoing_bytes_ >=
-           num_acknowledged_bytes_ + kFlowControlWindowSize) {
-      cv_.Wait(&mu_);
-    }
-    RETURN_IF_ERROR(binder_->PrepareTransaction());
-    WritableParcel* parcel = binder_->GetWritableParcel();
-    int flags = kFlagMessageData;
-    if (ptr == 0) {
-      // First transaction. Include initial metadata if there's any.
-      if (original_flags & kFlagPrefix) {
-        flags |= kFlagPrefix;
+  grpc_slice_buffer* buffer = tx.GetMessageData();
+  GPR_ASSERT(buffer->count > 0);
+  bool is_first = true;
+  while (buffer->count > 0) {
+    grpc_slice slice = grpc_slice_buffer_take_first(buffer);
+    absl::string_view data = grpc_core::StringViewFromSlice(slice);
+    size_t ptr = 0, len = data.size();
+    // The condition on the right is a small hack for empty messages. We will
+    // increment ptr by at least one so for empty messages we will sent exactly
+    // one transaction.
+    while (ptr < len || (ptr == 0 && len == 0)) {
+      while (num_outgoing_bytes_ >=
+             num_acknowledged_bytes_ + kFlowControlWindowSize) {
+        cv_.Wait(&mu_);
       }
-    }
-    if (ptr + kBlockSize < data.size()) {
-      // We can't complete in this transaction.
-      flags |= kFlagMessageDataIsPartial;
-    } else {
-      // Last transaction. Include trailing metadata if there's any.
-      if (original_flags & kFlagSuffix) {
-        flags |= kFlagSuffix;
+      RETURN_IF_ERROR(binder_->PrepareTransaction());
+      WritableParcel* parcel = binder_->GetWritableParcel();
+      int flags = kFlagMessageData;
+      if (is_first) {
+        // First transaction. Include initial metadata if there's any.
+        if (original_flags & kFlagPrefix) {
+          flags |= kFlagPrefix;
+        }
+        is_first = false;
       }
+      if (buffer->count > 0 || ptr + kBlockSize < len) {
+        // We can't complete in this transaction.
+        flags |= kFlagMessageDataIsPartial;
+      } else {
+        // Last transaction. Include trailing metadata if there's any.
+        if (original_flags & kFlagSuffix) {
+          flags |= kFlagSuffix;
+        }
+      }
+      RETURN_IF_ERROR(parcel->WriteInt32(flags));
+      RETURN_IF_ERROR(parcel->WriteInt32(seq++));
+      if (flags & kFlagPrefix) {
+        RETURN_IF_ERROR(WriteInitialMetadata(tx, parcel));
+      }
+      size_t size = std::min(static_cast<size_t>(kBlockSize), len - ptr);
+      RETURN_IF_ERROR(parcel->WriteByteArrayWithLength(data.substr(ptr, size)));
+      if (flags & kFlagSuffix) {
+        RETURN_IF_ERROR(WriteTrailingMetadata(tx, parcel));
+      }
+      num_outgoing_bytes_ += parcel->GetDataSize();
+      RETURN_IF_ERROR(binder_->Transact(BinderTransportTxCode(tx.GetTxCode())));
+      ptr += std::max<size_t>(1, size);
     }
-    RETURN_IF_ERROR(parcel->WriteInt32(flags));
-    RETURN_IF_ERROR(parcel->WriteInt32(seq++));
-    if (flags & kFlagPrefix) {
-      RETURN_IF_ERROR(WriteInitialMetadata(tx, parcel));
-    }
-    size_t size = std::min(static_cast<size_t>(kBlockSize), data.size() - ptr);
-    RETURN_IF_ERROR(parcel->WriteByteArrayWithLength(data.substr(ptr, size)));
-    if (flags & kFlagSuffix) {
-      RETURN_IF_ERROR(WriteTrailingMetadata(tx, parcel));
-    }
-    num_outgoing_bytes_ += parcel->GetDataSize();
-    RETURN_IF_ERROR(binder_->Transact(BinderTransportTxCode(tx.GetTxCode())));
-    ptr += size;
+    grpc_slice_unref_internal(slice);
   }
   return absl::OkStatus();
 }
