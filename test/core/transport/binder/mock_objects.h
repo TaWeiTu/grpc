@@ -89,7 +89,7 @@ class MockTransactionReceiver : public TransactionReceiver {
 
 class MockWireWriter : public WireWriter {
  public:
-  MOCK_METHOD(absl::Status, RpcCall, (const Transaction&), (override));
+  MOCK_METHOD(absl::Status, RpcCall, (Transaction), (override));
   MOCK_METHOD(absl::Status, SendAck, (int64_t), (override));
   MOCK_METHOD(void, RecvAck, (int64_t), (override));
 };

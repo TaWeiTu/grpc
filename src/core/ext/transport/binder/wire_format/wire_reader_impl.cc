@@ -46,7 +46,7 @@ absl::StatusOr<Metadata> parse_metadata(const ReadableParcel* reader) {
   if (num_header < 0) {
     return absl::InvalidArgumentError("num_header cannot be negative");
   }
-  std::vector<std::pair<std::string, std::string>> ret;
+  Metadata ret;
   for (int i = 0; i < num_header; i++) {
     int count;
     RETURN_IF_ERROR(reader->ReadInt32(&count));
@@ -59,7 +59,7 @@ absl::StatusOr<Metadata> parse_metadata(const ReadableParcel* reader) {
     std::string value{};
     if (count > 0) RETURN_IF_ERROR(reader->ReadByteArray(&value));
     gpr_log(GPR_INFO, "value = %s", value.c_str());
-    ret.push_back({key, value});
+    ret.emplace_back(std::move(key), std::move(value));
   }
   return ret;
 }
