@@ -25,15 +25,13 @@ struct grpc_binder_stream {
   // passed in to the accept_stream_fn callback by client.
   grpc_binder_stream(grpc_binder_transport* t, grpc_core::Arena* arena,
                      const void* /*server_data*/, int tx_code, bool is_client)
-      : t(t), arena(arena), seq(0), tx_code(tx_code), is_client(is_client) {}
+      : t(t), arena(arena), tx_code(tx_code), is_client(is_client) {}
   ~grpc_binder_stream() = default;
   int GetTxCode() { return tx_code; }
-  int GetThenIncSeq() { return seq++; }
 
   grpc_binder_transport* t;
   grpc_core::Arena* arena;
   grpc_core::ManualConstructor<grpc_core::SliceBufferByteStream> sbs;
-  int seq;
   int tx_code;
   bool is_client;
 

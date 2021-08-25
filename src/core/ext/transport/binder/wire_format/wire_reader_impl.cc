@@ -79,16 +79,19 @@ WireReaderImpl::~WireReaderImpl() {
   }
 }
 
-std::unique_ptr<WireWriter> WireReaderImpl::SetupTransport(
+std::shared_ptr<WireWriter> WireReaderImpl::SetupTransport(
     std::unique_ptr<Binder> binder) {
   gpr_log(GPR_INFO, "Setting up transport");
   if (!is_client_) {
     SendSetupTransport(binder.get());
-    return absl::make_unique<WireWriterImpl>(std::move(binder));
+    wire_writer_ = std::make_shared<WireWriterImpl>(std::move(binder));
+    return wire_writer_;
   } else {
     SendSetupTransport(binder.get());
     auto other_end_binder = RecvSetupTransport();
-    return absl::make_unique<WireWriterImpl>(std::move(other_end_binder));
+    wire_writer_ =
+        std::make_shared<WireWriterImpl>(std::move(other_end_binder));
+    return wire_writer_;
   }
 }
 
@@ -182,9 +185,11 @@ absl::Status WireReaderImpl::ProcessTransaction(transaction_code_t code,
       return absl::UnimplementedError("SHUTDOWN_TRANSPORT");
     }
     case BinderTransportTxCode::ACKNOWLEDGE_BYTES: {
-      int num_bytes = -1;
-      RETURN_IF_ERROR(parcel->ReadInt32(&num_bytes));
-      gpr_log(GPR_INFO, "received acknowledge bytes = %d", num_bytes);
+      int64_t num_bytes = -1;
+      RETURN_IF_ERROR(parcel->ReadInt64(&num_bytes));
+      gpr_log(GPR_INFO, "received acknowledge bytes = %zu",
+              static_cast<size_t>(num_bytes));
+      wire_writer_->RecvAck(static_cast<size_t>(num_bytes));
       break;
     }
     case BinderTransportTxCode::PING: {
@@ -232,6 +237,14 @@ absl::Status WireReaderImpl::ProcessStreamingTransaction(
       gpr_log(GPR_INFO, "cancelling trailing metadata");
       transport_stream_receiver_->NotifyRecvTrailingMetadata(code, status, 0);
     }
+  }
+  if ((num_incoming_bytes_ - num_acknowledged_bytes_) >= kFlowControlAckBytes) {
+    GPR_ASSERT(wire_writer_);
+    absl::Status ack_status = wire_writer_->SendAck(num_incoming_bytes_);
+    if (status.ok()) {
+      status = ack_status;
+    }
+    num_acknowledged_bytes_ = num_incoming_bytes_;
   }
   return status;
 }
@@ -306,7 +319,14 @@ absl::Status WireReaderImpl::ProcessStreamingTransactionImpl(
       RETURN_IF_ERROR(parcel->ReadByteArray(&msg_data));
     }
     gpr_log(GPR_INFO, "msg_data = %s", msg_data.c_str());
-    transport_stream_receiver_->NotifyRecvMessage(code, std::move(msg_data));
+    message_buffer_[code] += msg_data;
+    // TODO(waynetu): This should be parcel->GetDataSize().
+    num_incoming_bytes_ += count;
+    if ((flags & kFlagMessageDataIsPartial) == 0) {
+      std::string s = std::move(message_buffer_[code]);
+      message_buffer_.erase(code);
+      transport_stream_receiver_->NotifyRecvMessage(code, std::move(s));
+    }
     *cancellation_flags &= ~kFlagMessageData;
   }
   if (flags & kFlagSuffix) {
