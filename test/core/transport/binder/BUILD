@@ -27,6 +27,7 @@ grpc_cc_library(
         "gtest",
     ],
     language = "C++",
+    testonly = 1,
     deps = [
         "//src/core/ext/transport/binder/wire_format:binder",
         "//src/core/ext/transport/binder/wire_format:wire_reader",
