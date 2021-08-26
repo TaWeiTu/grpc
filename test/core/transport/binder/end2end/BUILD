@@ -20,9 +20,9 @@ grpc_package(name = "test/core/transport/binder/end2end")
 
 grpc_cc_library(
     name = "fake_binder",
+    testonly = 1,
     srcs = ["fake_binder.cc"],
     hdrs = ["fake_binder.h"],
-    testonly = 1,
     external_deps = [
         "absl/memory",
         "absl/random",
@@ -56,10 +56,10 @@ grpc_cc_test(
 
 grpc_cc_library(
     name = "end2end_binder_channel",
+    testonly = 1,
     srcs = ["testing_channel_create.cc"],
     hdrs = ["testing_channel_create.h"],
     external_deps = [],
-    testonly = 1,
     deps = [
         ":fake_binder",
         "//:grpc++_base",
@@ -76,9 +76,9 @@ grpc_proto_library(
 
 grpc_cc_library(
     name = "echo_service",
+    testonly = 1,
     srcs = ["echo_service.cc"],
     hdrs = ["echo_service.h"],
-    testonly = 1,
     external_deps = [
         "absl/strings",
         "absl/strings:str_format",

@@ -20,6 +20,7 @@ grpc_package(name = "test/core/transport/binder")
 
 grpc_cc_library(
     name = "mock_objects",
+    testonly = 1,
     srcs = ["mock_objects.cc"],
     hdrs = ["mock_objects.h"],
     external_deps = [
@@ -27,7 +28,6 @@ grpc_cc_library(
         "gtest",
     ],
     language = "C++",
-    testonly = 1,
     deps = [
         "//src/core/ext/transport/binder/wire_format:binder",
         "//src/core/ext/transport/binder/wire_format:wire_reader",
