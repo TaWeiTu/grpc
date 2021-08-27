@@ -110,6 +110,7 @@ void ServerTryCancel(ServerContext* context) {
   gpr_log(GPR_INFO, "Server called TryCancel() to cancel the request");
   // Now wait until it's really canceled
   while (!context->IsCancelled()) {
+    gpr_log(GPR_DEBUG, "Wait");
     gpr_sleep_until(gpr_time_add(gpr_now(GPR_CLOCK_REALTIME),
                                  gpr_time_from_micros(1000, GPR_TIMESPAN)));
   }

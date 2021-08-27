@@ -94,7 +94,9 @@ class ServerContextBase::CompletionOp final
   bool FinalizeResult(void** tag, bool* status) override;
 
   bool CheckCancelled(CompletionQueue* cq) {
+    gpr_log(GPR_DEBUG, "Before TryPluck");
     cq->TryPluck(this);
+    gpr_log(GPR_DEBUG, "After TryPluck");
     return CheckCancelledNoPluck();
   }
   bool CheckCancelledAsync() { return CheckCancelledNoPluck(); }
@@ -137,7 +139,10 @@ class ServerContextBase::CompletionOp final
 
  private:
   bool CheckCancelledNoPluck() {
+    gpr_log(GPR_DEBUG, "CheckCancelledNoPluck");
     grpc_core::MutexLock lock(&mu_);
+    gpr_log(GPR_DEBUG, "CheckCancelledNoPluck got lock");
+    gpr_log(GPR_DEBUG, "finalized_ = %d cancelled_ = %d", finalized_, cancelled_);
     return finalized_ ? (cancelled_ != 0) : false;
   }
 

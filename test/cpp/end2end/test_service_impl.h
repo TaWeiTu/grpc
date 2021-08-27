@@ -154,6 +154,7 @@ class TestMultipleServiceImpl : public RpcService {
       // in server_try_cancel don't make much sense. Just cancel the RPC as long
       // as server_try_cancel is not DO_NOT_CANCEL
       internal::ServerTryCancel(context);
+      gpr_log(GPR_DEBUG, "Done ServerTryCancel");
       return Status::CANCELLED;
     }
 
@@ -403,6 +404,7 @@ class TestMultipleServiceImpl : public RpcService {
       response.set_message(request.message());
       if (read_counts == server_write_last) {
         stream->WriteLast(response, WriteOptions());
+        break;
       } else {
         stream->Write(response);
       }
