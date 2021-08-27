@@ -232,7 +232,8 @@ TEST_P(End2EndBinderTransportTest, ServerStreamingCallCoalescingApi) {
   server->Shutdown();
 }
 
-TEST_P(End2EndBinderTransportTest, ServerStreamingCallTryCancelBeforeProcessing) {
+TEST_P(End2EndBinderTransportTest,
+       ServerStreamingCallTryCancelBeforeProcessing) {
   grpc::ChannelArguments args;
   grpc::ServerBuilder builder;
   grpc::testing::TestServiceImpl service;
