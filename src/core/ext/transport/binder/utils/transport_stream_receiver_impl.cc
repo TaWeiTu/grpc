@@ -157,7 +157,7 @@ void TransportStreamReceiverImpl::NotifyRecvTrailingMetadata(
   // parsed after message data, we can safely cancel all upcoming callbacks of
   // recv_message.
   gpr_log(GPR_INFO, "%s id = %d is_client = %d", __func__, id, is_client_);
-  CancelRecvMessageCallbacksDueToTrailingMetadata(id);
+  OnRecvTrailingMetadata(id);
   TrailingMetadataCallbackType cb;
   {
     grpc_core::MutexLock l(&m_);
@@ -174,23 +174,39 @@ void TransportStreamReceiverImpl::NotifyRecvTrailingMetadata(
   cb(std::move(trailing_metadata), status);
 }
 
-void TransportStreamReceiverImpl::
-    CancelRecvMessageCallbacksDueToTrailingMetadata(StreamIdentifier id) {
+void TransportStreamReceiverImpl::OnRecvTrailingMetadata(StreamIdentifier id) {
   gpr_log(GPR_INFO, "%s id = %d is_client = %d", __func__, id, is_client_);
-  MessageDataCallbackType cb = nullptr;
   {
-    grpc_core::MutexLock l(&m_);
-    auto iter = message_cbs_.find(id);
-    if (iter != message_cbs_.end()) {
-      cb = std::move(iter->second);
-      message_cbs_.erase(iter);
+    InitialMetadataCallbackType cb = nullptr;
+    {
+      grpc_core::MutexLock l(&m_);
+      auto iter = initial_metadata_cbs_.find(id);
+      if (iter != initial_metadata_cbs_.end()) {
+        cb = std::move(iter->second);
+        initial_metadata_cbs_.erase(iter);
+      }
     }
-    recv_message_cancelled_.insert(id);
+    if (cb != nullptr) {
+      // The registered callback will never be satisfied. Cancel it.
+      cb(absl::CancelledError(""));
+    }
   }
-  if (cb != nullptr) {
-    // The registered callback will never be satisfied. Cancel it.
-    cb(absl::CancelledError(
-        TransportStreamReceiver::kGrpcBinderTransportCancelledGracefully));
+  {
+    MessageDataCallbackType cb = nullptr;
+    {
+      grpc_core::MutexLock l(&m_);
+      auto iter = message_cbs_.find(id);
+      if (iter != message_cbs_.end()) {
+        cb = std::move(iter->second);
+        message_cbs_.erase(iter);
+      }
+      recv_message_cancelled_.insert(id);
+    }
+    if (cb != nullptr) {
+      // The registered callback will never be satisfied. Cancel it.
+      cb(absl::CancelledError(
+          TransportStreamReceiver::kGrpcBinderTransportCancelledGracefully));
+    }
   }
 }
 
