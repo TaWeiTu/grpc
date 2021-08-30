@@ -142,7 +142,8 @@ class ServerContextBase::CompletionOp final
     gpr_log(GPR_DEBUG, "CheckCancelledNoPluck");
     grpc_core::MutexLock lock(&mu_);
     gpr_log(GPR_DEBUG, "CheckCancelledNoPluck got lock");
-    gpr_log(GPR_DEBUG, "finalized_ = %d cancelled_ = %d", finalized_, cancelled_);
+    gpr_log(GPR_DEBUG, "finalized_ = %d cancelled_ = %d", finalized_,
+            cancelled_);
     return finalized_ ? (cancelled_ != 0) : false;
   }
 
