@@ -20,7 +20,7 @@
 #include <string>
 #include <vector>
 
-#include <grpc/support/log.h>
+#include "absl/container/flat_hash_map.h"
 
 #include "src/core/ext/transport/binder/wire_format/binder.h"
 #include "src/core/ext/transport/binder/wire_format/transaction.h"
@@ -32,18 +32,38 @@ class WireWriter {
  public:
   virtual ~WireWriter() = default;
   virtual absl::Status RpcCall(const Transaction& call) = 0;
-  virtual absl::Status Ack(int64_t num_bytes) = 0;
+  virtual absl::Status SendAck(int64_t num_bytes) = 0;
+  virtual void RecvAck(int64_t num_bytes) = 0;
 };
 
 class WireWriterImpl : public WireWriter {
  public:
   explicit WireWriterImpl(std::unique_ptr<Binder> binder);
   absl::Status RpcCall(const Transaction& tx) override;
-  absl::Status Ack(int64_t num_bytes) override;
+  absl::Status SendAck(int64_t num_bytes) override;
+  void RecvAck(int64_t num_bytes) override;
+
+  // Split long message into chunks of size 16k. This doesn't necessarily have
+  // to be the same as the flow control acknowledgement size, but it should not
+  // exceed 128k.
+  static const int64_t kBlockSize;
+  // Flow control allows sending at most 128k between acknowledgements.
+  static const int64_t kFlowControlWindowSize;
 
  private:
+  absl::Status WriteInitialMetadata(const Transaction& tx,
+                                    WritableParcel* parcel)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
+  absl::Status WriteTrailingMetadata(const Transaction& tx,
+                                     WritableParcel* parcel)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
+
   grpc_core::Mutex mu_;
+  grpc_core::CondVar cv_;
   std::unique_ptr<Binder> binder_ ABSL_GUARDED_BY(mu_);
+  absl::flat_hash_map<int, int> seq_num_ ABSL_GUARDED_BY(mu_);
+  int64_t num_outgoing_bytes_ ABSL_GUARDED_BY(mu_) = 0;
+  int64_t num_acknowledged_bytes_ ABSL_GUARDED_BY(mu_) = 0;
 };
 
 }  // namespace grpc_binder

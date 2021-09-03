@@ -102,8 +102,7 @@ static void perform_stream_op(grpc_transport* gt, grpc_stream* gs,
         grpc_error_to_absl_status(op->payload->cancel_stream.cancel_error);
     // Send trailing metadata to inform the other end about the cancellation,
     // regardless if we'd already done that or not.
-    grpc_binder::Transaction cancel_tx(gbs->GetTxCode(), gbs->GetThenIncSeq(),
-                                       gbt->is_client);
+    grpc_binder::Transaction cancel_tx(gbs->GetTxCode(), gbt->is_client);
     cancel_tx.SetSuffix(grpc_binder::Metadata{});
     absl::Status status = gbt->wire_writer->RpcCall(cancel_tx);
     gbt->transport_stream_receiver->CancelStream(gbs->tx_code,
@@ -117,20 +116,11 @@ static void perform_stream_op(grpc_transport* gt, grpc_stream* gs,
     return;
   }
 
-  std::unique_ptr<grpc_binder::Transaction> tx;
-
-  if (op->send_initial_metadata || op->send_message ||
-      op->send_trailing_metadata) {
-    // Only increment sequence number when there's a send operation.
-    tx = absl::make_unique<grpc_binder::Transaction>(
-        /*tx_code=*/gbs->GetTxCode(), /*seq_num=*/gbs->GetThenIncSeq(),
-        gbt->is_client);
-  }
+  grpc_binder::Transaction tx(gbs->GetTxCode(), gbt->is_client);
   if (op->send_initial_metadata && gbs->cancellation_error.ok()) {
     gpr_log(GPR_INFO, "send_initial_metadata");
     grpc_binder::Metadata init_md;
     auto batch = op->payload->send_initial_metadata.send_initial_metadata;
-    GPR_ASSERT(tx);
 
     for (grpc_linked_mdelem* md = batch->list.head; md != nullptr;
          md = md->next) {
@@ -148,12 +138,12 @@ static void perform_stream_op(grpc_transport* gt, grpc_stream* gs,
 
         // Only client send method ref.
         GPR_ASSERT(gbt->is_client);
-        tx->SetMethodRef(path);
+        tx.SetMethodRef(path);
       } else {
         init_md.emplace_back(std::string(key), std::string(value));
       }
     }
-    tx->SetPrefix(init_md);
+    tx.SetPrefix(init_md);
   }
   if (op->send_message && gbs->cancellation_error.ok()) {
     gpr_log(GPR_INFO, "send_message");
@@ -175,8 +165,7 @@ static void perform_stream_op(grpc_transport* gt, grpc_stream* gs,
       grpc_slice_unref_internal(message_slice);
     }
     gpr_log(GPR_INFO, "message_data = %s", message_data.c_str());
-    GPR_ASSERT(tx);
-    tx->SetData(message_data);
+    tx.SetData(message_data);
     // TODO(b/192369787): Are we supposed to reset here to avoid
     // use-after-free issue in call.cc?
     op->payload->send_message.send_message.reset();
@@ -185,7 +174,6 @@ static void perform_stream_op(grpc_transport* gt, grpc_stream* gs,
     gpr_log(GPR_INFO, "send_trailing_metadata");
     auto batch = op->payload->send_trailing_metadata.send_trailing_metadata;
     grpc_binder::Metadata trailing_metadata;
-    GPR_ASSERT(tx);
 
     for (grpc_linked_mdelem* md = batch->list.head; md != nullptr;
          md = md->next) {
@@ -195,7 +183,7 @@ static void perform_stream_op(grpc_transport* gt, grpc_stream* gs,
       if (grpc_slice_eq(GRPC_MDKEY(md->md), GRPC_MDSTR_GRPC_STATUS)) {
         int status = grpc_get_status_code_from_metadata(md->md);
         gpr_log(GPR_INFO, "send trailing metadata status = %d", status);
-        tx->SetStatus(status);
+        tx.SetStatus(status);
       } else {
         absl::string_view key =
             grpc_core::StringViewFromSlice(GRPC_MDKEY(md->md));
@@ -208,7 +196,7 @@ static void perform_stream_op(grpc_transport* gt, grpc_stream* gs,
     }
     // TODO(mingcl): Will we ever has key-value pair here? According to
     // wireformat client suffix data is always empty.
-    tx->SetSuffix(trailing_metadata);
+    tx.SetSuffix(trailing_metadata);
   }
   if (op->recv_initial_metadata) {
     gpr_log(GPR_INFO, "recv_initial_metadata");
@@ -346,8 +334,12 @@ static void perform_stream_op(grpc_transport* gt, grpc_stream* gs,
   }
   // Only send transaction when there's a send op presented.
   absl::Status status = absl::OkStatus();
-  if (tx) {
-    status = gbt->wire_writer->RpcCall(*tx);
+  if (op->send_initial_metadata || op->send_message ||
+      op->send_trailing_metadata) {
+    // TODO(waynetu): RpcCall() is doing a lot of work (including waiting for
+    // acknowledgements from the other side). Consider delaying this operation
+    // with combiner.
+    status = gbt->wire_writer->RpcCall(tx);
   }
   // Note that this should only be scheduled when all non-recv ops are
   // completed
