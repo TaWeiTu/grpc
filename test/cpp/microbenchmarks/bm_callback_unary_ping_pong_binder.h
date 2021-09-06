@@ -72,7 +72,8 @@ static void BM_CallbackUnaryPingPongBinder(benchmark::State& state, JNIEnv* env,
                                            jobject application) {
   gpr_log(GPR_ERROR, "BM_CallbackUnaryPingPongBinder %lld %lld", state.range(0),
           state.range(1));
-  std::unique_ptr<BinderClientFixture> fixture(new BinderClientFixture(env, application));
+  std::unique_ptr<BinderClientFixture> fixture(
+      new BinderClientFixture(env, application));
   std::unique_ptr<EchoTestService::Stub> stub(
       EchoTestService::NewStub(fixture->channel()));
   EchoRequest request;
