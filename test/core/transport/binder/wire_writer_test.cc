@@ -25,7 +25,6 @@
 namespace grpc_binder {
 
 using ::testing::Return;
-using ::testing::StrictMock;
 
 MATCHER_P(StrEqInt8Ptr, target, "") {
   return std::string(reinterpret_cast<const char*>(arg), target.size()) ==
@@ -35,7 +34,7 @@ MATCHER_P(StrEqInt8Ptr, target, "") {
 TEST(WireWriterTest, RpcCall) {
   auto mock_binder = absl::make_unique<MockBinder>();
   MockBinder& mock_binder_ref = *mock_binder;
-  StrictMock<MockWritableParcel> mock_writable_parcel;
+  MockWritableParcel mock_writable_parcel;
   ON_CALL(mock_binder_ref, GetWritableParcel)
       .WillByDefault(Return(&mock_writable_parcel));
   WireWriterImpl wire_writer(std::move(mock_binder));
@@ -174,6 +173,8 @@ TEST(WireWriterTest, RpcCall) {
                 WriteInt32(kFlagMessageData | kFlagMessageDataIsPartial));
     EXPECT_CALL(mock_writable_parcel, WriteInt32(0));
     ExpectWriteByteArray(std::string(WireWriterImpl::kBlockSize, 'a'));
+    EXPECT_CALL(mock_writable_parcel, GetDataSize)
+        .WillOnce(Return(WireWriterImpl::kBlockSize));
     EXPECT_CALL(mock_binder_ref,
                 Transact(BinderTransportTxCode(kFirstCallId + 2)));
 
@@ -181,12 +182,15 @@ TEST(WireWriterTest, RpcCall) {
                 WriteInt32(kFlagMessageData | kFlagMessageDataIsPartial));
     EXPECT_CALL(mock_writable_parcel, WriteInt32(1));
     ExpectWriteByteArray(std::string(WireWriterImpl::kBlockSize, 'a'));
+    EXPECT_CALL(mock_writable_parcel, GetDataSize)
+        .WillOnce(Return(WireWriterImpl::kBlockSize));
     EXPECT_CALL(mock_binder_ref,
                 Transact(BinderTransportTxCode(kFirstCallId + 2)));
 
     EXPECT_CALL(mock_writable_parcel, WriteInt32(kFlagMessageData));
     EXPECT_CALL(mock_writable_parcel, WriteInt32(2));
     ExpectWriteByteArray("a");
+    EXPECT_CALL(mock_writable_parcel, GetDataSize).WillOnce(Return(1));
     EXPECT_CALL(mock_binder_ref,
                 Transact(BinderTransportTxCode(kFirstCallId + 2)));
 
@@ -204,6 +208,8 @@ TEST(WireWriterTest, RpcCall) {
     EXPECT_CALL(mock_writable_parcel, WriteString(absl::string_view("123")));
     EXPECT_CALL(mock_writable_parcel, WriteInt32(0));
     ExpectWriteByteArray(std::string(WireWriterImpl::kBlockSize, 'a'));
+    EXPECT_CALL(mock_writable_parcel, GetDataSize)
+        .WillOnce(Return(WireWriterImpl::kBlockSize));
     EXPECT_CALL(mock_binder_ref,
                 Transact(BinderTransportTxCode(kFirstCallId + 3)));
 
@@ -211,6 +217,8 @@ TEST(WireWriterTest, RpcCall) {
                 WriteInt32(kFlagMessageData | kFlagMessageDataIsPartial));
     EXPECT_CALL(mock_writable_parcel, WriteInt32(1));
     ExpectWriteByteArray(std::string(WireWriterImpl::kBlockSize, 'a'));
+    EXPECT_CALL(mock_writable_parcel, GetDataSize)
+        .WillOnce(Return(WireWriterImpl::kBlockSize));
     EXPECT_CALL(mock_binder_ref,
                 Transact(BinderTransportTxCode(kFirstCallId + 3)));
 
@@ -218,6 +226,7 @@ TEST(WireWriterTest, RpcCall) {
                 WriteInt32(kFlagMessageData | kFlagSuffix));
     EXPECT_CALL(mock_writable_parcel, WriteInt32(2));
     ExpectWriteByteArray("a");
+    EXPECT_CALL(mock_writable_parcel, GetDataSize).WillOnce(Return(1));
     EXPECT_CALL(mock_binder_ref,
                 Transact(BinderTransportTxCode(kFirstCallId + 3)));
 
