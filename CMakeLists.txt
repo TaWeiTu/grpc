@@ -8392,10 +8392,6 @@ add_executable(binder_server_test
   ${_gRPC_PROTO_GENS_DIR}/src/proto/grpc/testing/simple_messages.grpc.pb.cc
   ${_gRPC_PROTO_GENS_DIR}/src/proto/grpc/testing/simple_messages.pb.h
   ${_gRPC_PROTO_GENS_DIR}/src/proto/grpc/testing/simple_messages.grpc.pb.h
-  ${_gRPC_PROTO_GENS_DIR}/test/core/transport/binder/end2end/echo.pb.cc
-  ${_gRPC_PROTO_GENS_DIR}/test/core/transport/binder/end2end/echo.grpc.pb.cc
-  ${_gRPC_PROTO_GENS_DIR}/test/core/transport/binder/end2end/echo.pb.h
-  ${_gRPC_PROTO_GENS_DIR}/test/core/transport/binder/end2end/echo.grpc.pb.h
   src/core/ext/transport/binder/client/channel_create_impl.cc
   src/core/ext/transport/binder/server/binder_server.cc
   src/core/ext/transport/binder/server/binder_server_credentials.cc
@@ -8407,7 +8403,6 @@ add_executable(binder_server_test
   src/core/ext/transport/binder/wire_format/wire_reader_impl.cc
   src/core/ext/transport/binder/wire_format/wire_writer.cc
   test/core/transport/binder/end2end/binder_server_test.cc
-  test/core/transport/binder/end2end/echo_service.cc
   test/core/transport/binder/end2end/fake_binder.cc
   test/cpp/end2end/test_service_impl.cc
   third_party/googletest/googletest/src/gtest-all.cc
