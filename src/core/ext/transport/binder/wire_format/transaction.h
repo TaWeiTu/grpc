@@ -57,7 +57,7 @@ struct KeyValuePair {
   KeyValuePair(grpc_slice k, grpc_slice v) : key(k), value(v) {}
   KeyValuePair(const KeyValuePair& kv)
       : key(grpc_slice_ref(kv.key)), value(grpc_slice_ref(kv.value)) {}
-  KeyValuePair(KeyValuePair&& kv) : key(kv.key), value(kv.value) {}
+  KeyValuePair(KeyValuePair&& kv) noexcept : key(kv.key), value(kv.value) {}
 
   absl::string_view ViewKey() const {
     return grpc_core::StringViewFromSlice(key);

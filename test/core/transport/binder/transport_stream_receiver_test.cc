@@ -131,7 +131,8 @@ class MockOpBatch {
     }
     if (flag_ & kFlagMessageData) {
       message_callback_->ExpectCallbackInvocation();
-      grpc_slice slice = grpc_slice_from_cpp_string(Encode<std::string>(id_, seq_num_));
+      grpc_slice slice =
+          grpc_slice_from_cpp_string(Encode<std::string>(id_, seq_num_));
       grpc_slice_buffer buffer;
       grpc_slice_buffer_init(&buffer);
       grpc_slice_buffer_add(&buffer, slice);
