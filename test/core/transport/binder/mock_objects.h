@@ -46,8 +46,8 @@ class MockReadableParcel : public ReadableParcel {
   MOCK_METHOD(absl::Status, ReadInt64, (int64_t*), (const, override));
   MOCK_METHOD(absl::Status, ReadBinder, (std::unique_ptr<Binder>*),
               (const, override));
-  MOCK_METHOD(absl::Status, ReadByteArray, (std::string*), (const, override));
-  MOCK_METHOD(absl::Status, ReadString, (char[111]), (const, override));
+  MOCK_METHOD(absl::Status, ReadByteArray, (grpc_slice*), (const, override));
+  MOCK_METHOD(absl::Status, ReadString, (grpc_slice*), (const, override));
 
   MockReadableParcel();
 };
@@ -105,7 +105,7 @@ class MockTransportStreamReceiver : public TransportStreamReceiver {
   MOCK_METHOD(void, NotifyRecvInitialMetadata,
               (StreamIdentifier, absl::StatusOr<Metadata>), (override));
   MOCK_METHOD(void, NotifyRecvMessage,
-              (StreamIdentifier, absl::StatusOr<std::string>), (override));
+              (StreamIdentifier, absl::StatusOr<SliceBuffer>), (override));
   MOCK_METHOD(void, NotifyRecvTrailingMetadata,
               (StreamIdentifier, absl::StatusOr<Metadata>, int), (override));
   MOCK_METHOD(void, CancelRecvMessageCallbacksDueToTrailingMetadata,

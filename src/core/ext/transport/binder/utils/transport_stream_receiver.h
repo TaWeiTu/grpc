@@ -28,6 +28,10 @@ namespace grpc_binder {
 
 typedef int StreamIdentifier;
 
+// Copying grpc_slice_buffer correctly is painful due to inlining. SliceBuffer
+// serves as a modern not-so-optimal representation of a buffer of slices.
+using SliceBuffer = std::vector<grpc_slice>;
+
 class TransportStreamReceiver {
  public:
   virtual ~TransportStreamReceiver() = default;
@@ -35,7 +39,7 @@ class TransportStreamReceiver {
   using InitialMetadataCallbackType =
       std::function<void(absl::StatusOr<Metadata>)>;
   using MessageDataCallbackType =
-      std::function<void(absl::StatusOr<std::string>)>;
+      std::function<void(absl::StatusOr<SliceBuffer>)>;
   using TrailingMetadataCallbackType =
       std::function<void(absl::StatusOr<Metadata>, int)>;
 
@@ -55,7 +59,7 @@ class TransportStreamReceiver {
   virtual void NotifyRecvInitialMetadata(
       StreamIdentifier id, absl::StatusOr<Metadata> initial_metadata) = 0;
   virtual void NotifyRecvMessage(StreamIdentifier id,
-                                 absl::StatusOr<std::string> message) = 0;
+                                 absl::StatusOr<SliceBuffer> message) = 0;
   virtual void NotifyRecvTrailingMetadata(
       StreamIdentifier id, absl::StatusOr<Metadata> trailing_metadata,
       int status) = 0;
