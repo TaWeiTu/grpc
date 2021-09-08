@@ -43,12 +43,21 @@ struct KeyValuePair {
   grpc_slice value;
 
   KeyValuePair() : key(grpc_empty_slice()), value(grpc_empty_slice()) {}
+
+  ~KeyValuePair() {
+    grpc_slice_unref_internal(key);
+    grpc_slice_unref_internal(value);
+  }
+
   // TODO(waynetu): Remove this constructor when we can directly read grpc_slice
   // from binder.
   KeyValuePair(std::string k, std::string v)
       : key(grpc_slice_from_cpp_string(std::move(k))),
         value(grpc_slice_from_cpp_string(std::move(v))) {}
   KeyValuePair(grpc_slice k, grpc_slice v) : key(k), value(v) {}
+  KeyValuePair(const KeyValuePair& kv)
+      : key(grpc_slice_ref(kv.key)), value(grpc_slice_ref(kv.value)) {}
+  KeyValuePair(KeyValuePair&& kv) : key(kv.key), value(kv.value) {}
 
   absl::string_view ViewKey() const {
     return grpc_core::StringViewFromSlice(key);

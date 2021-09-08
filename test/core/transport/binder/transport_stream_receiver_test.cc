@@ -103,7 +103,7 @@ class MockCallback {
 };
 
 using MockInitialMetadataCallback = MockCallback<absl::StatusOr<Metadata>>;
-using MockMessageCallback = MockCallback<absl::StatusOr<std::string>>;
+using MockMessageCallback = MockCallback<absl::StatusOr<grpc_slice_buffer>>;
 using MockTrailingMetadataCallback =
     MockCallback<absl::StatusOr<Metadata>, int>;
 
@@ -131,7 +131,11 @@ class MockOpBatch {
     }
     if (flag_ & kFlagMessageData) {
       message_callback_->ExpectCallbackInvocation();
-      receiver.NotifyRecvMessage(id_, Encode<std::string>(id_, seq_num_));
+      grpc_slice slice = grpc_slice_from_cpp_string(Encode<std::string>(id_, seq_num_));
+      grpc_slice_buffer buffer;
+      grpc_slice_buffer_init(&buffer);
+      grpc_slice_buffer_add(&buffer, slice);
+      receiver.NotifyRecvMessage(id_, buffer);
     }
     if (flag_ & kFlagSuffix) {
       trailing_metadata_callback_->ExpectCallbackInvocation();
