@@ -55,8 +55,8 @@ class WireReaderTest : public ::testing::Test {
     ExpectReadInt32(buffer.length());
     if (!buffer.empty()) {
       EXPECT_CALL(mock_readable_parcel_, ReadByteArray)
-          .WillOnce([buffer](std::string* data) {
-            *data = buffer;
+          .WillOnce([buffer](grpc_slice* data) {
+            *data = grpc_slice_from_cpp_string(buffer);
             return absl::OkStatus();
           });
     }
@@ -91,14 +91,20 @@ bool operator==(const Metadata& lhs, const TestingMetadata& rhs) {
   return true;
 }
 
-MATCHER_P(StatusOrStrEq, target, "") {
+MATCHER_P(StatusOrContainerEq, target, "") {
   if (!arg.ok()) return false;
   return arg.value() == target;
 }
 
-MATCHER_P(StatusOrContainerEq, target, "") {
+MATCHER_P(StatusOrSliceBufferEq, target, "") {
   if (!arg.ok()) return false;
-  return arg.value() == target;
+  if (arg.value().size() != target.size()) return false;
+  for (size_t i = 0; i < arg.value().size(); ++i) {
+    if (grpc_core::StringViewFromSlice(arg.value()[i]) != target[i]) {
+      return false;
+    }
+  }
+  return true;
 }
 
 }  // namespace
@@ -227,7 +233,9 @@ TEST_F(WireReaderTest, ProcessTransactionServerRpcDataFlagMessageDataNonEmpty) {
   const std::string kMessageData = "message data";
   ExpectReadByteArray(kMessageData);
   EXPECT_CALL(*transport_stream_receiver_,
-              NotifyRecvMessage(kFirstCallId, StatusOrStrEq(kMessageData)));
+              NotifyRecvMessage(kFirstCallId,
+                                StatusOrSliceBufferEq(
+                                    std::vector<std::string>{kMessageData})));
 
   EXPECT_TRUE(CallProcessTransaction(kFirstCallId).ok());
 }
@@ -245,7 +253,9 @@ TEST_F(WireReaderTest, ProcessTransactionServerRpcDataFlagMessageDataEmpty) {
   const std::string kMessageData = "";
   ExpectReadByteArray(kMessageData);
   EXPECT_CALL(*transport_stream_receiver_,
-              NotifyRecvMessage(kFirstCallId, StatusOrStrEq(kMessageData)));
+              NotifyRecvMessage(kFirstCallId,
+                                StatusOrSliceBufferEq(
+                                    std::vector<std::string>{kMessageData})));
 
   EXPECT_TRUE(CallProcessTransaction(kFirstCallId).ok());
 }
@@ -298,8 +308,9 @@ TEST_F(WireReaderTest, InBoundFlowControl) {
   // message size
   ExpectReadInt32(1000);
   EXPECT_CALL(mock_readable_parcel_, ReadByteArray)
-      .WillOnce(DoAll(SetArgPointee<0>(std::string(1000, 'a')),
-                      Return(absl::OkStatus())));
+      .WillOnce(DoAll(
+          SetArgPointee<0>(grpc_slice_from_cpp_string(std::string(1000, 'a'))),
+          Return(absl::OkStatus())));
 
   // Data is not completed. No callback will be triggered.
   EXPECT_TRUE(CallProcessTransaction(kFirstCallId).ok());
@@ -312,13 +323,15 @@ TEST_F(WireReaderTest, InBoundFlowControl) {
   // message size
   ExpectReadInt32(1000);
   EXPECT_CALL(mock_readable_parcel_, ReadByteArray)
-      .WillOnce(DoAll(SetArgPointee<0>(std::string(1000, 'b')),
-                      Return(absl::OkStatus())));
+      .WillOnce(DoAll(
+          SetArgPointee<0>(grpc_slice_from_cpp_string(std::string(1000, 'b'))),
+          Return(absl::OkStatus())));
 
-  EXPECT_CALL(*transport_stream_receiver_,
-              NotifyRecvMessage(kFirstCallId,
-                                StatusOrContainerEq(std::string(1000, 'a') +
-                                                    std::string(1000, 'b'))));
+  EXPECT_CALL(
+      *transport_stream_receiver_,
+      NotifyRecvMessage(kFirstCallId,
+                        StatusOrSliceBufferEq(std::vector<std::string>{
+                            std::string(1000, 'a'), std::string(1000, 'b')})));
   EXPECT_TRUE(CallProcessTransaction(kFirstCallId).ok());
 }
 

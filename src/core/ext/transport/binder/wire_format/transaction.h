@@ -43,12 +43,20 @@ struct KeyValuePair {
   grpc_slice value;
 
   KeyValuePair() : key(grpc_empty_slice()), value(grpc_empty_slice()) {}
+
+  ~KeyValuePair() {
+    grpc_slice_unref_internal(key);
+    grpc_slice_unref_internal(value);
+  }
+
   // TODO(waynetu): Remove this constructor when we can directly read grpc_slice
   // from binder.
   KeyValuePair(std::string k, std::string v)
       : key(grpc_slice_from_cpp_string(std::move(k))),
         value(grpc_slice_from_cpp_string(std::move(v))) {}
   KeyValuePair(grpc_slice k, grpc_slice v) : key(k), value(v) {}
+  KeyValuePair(const KeyValuePair& kv)
+      : key(grpc_slice_ref(kv.key)), value(grpc_slice_ref(kv.value)) {}
 
   absl::string_view ViewKey() const {
     return grpc_core::StringViewFromSlice(key);
@@ -64,20 +72,23 @@ struct KeyValuePair {
 
 using Metadata = std::vector<KeyValuePair>;
 
+// Copying grpc_slice_buffer correctly is painful due to inlining. SliceBuffer
+// serves as a modern not-so-optimal representation of a buffer of slices.
+// The SliceBuffer *does not* own the slices it contains. Instead, others should
+// be responsible for un-refing the slice.
+using SliceBuffer = std::vector<grpc_slice>;
+
 class Transaction {
  public:
   Transaction(int tx_code, bool is_client)
       : tx_code_(tx_code),
         is_client_(is_client),
         method_ref_(grpc_empty_slice()),
-        status_desc_(grpc_empty_slice()) {
-    grpc_slice_buffer_init(&message_data_);
-  }
+        status_desc_(grpc_empty_slice()) {}
 
   ~Transaction() {
     grpc_slice_unref_internal(method_ref_);
     grpc_slice_unref_internal(status_desc_);
-    // grpc_slice_buffer_destroy(&message_data_);
   }
 
   void SetPrefix(Metadata prefix_metadata) {
@@ -91,8 +102,9 @@ class Transaction {
   }
   void SetMessageData() { flags_ |= kFlagMessageData; }
   void PushMessageData(grpc_slice message_slice) {
+    // We should call SetMessageData() before start pushing message data.
     GPR_ASSERT((flags_ & kFlagMessageData) != 0);
-    grpc_slice_buffer_add(&message_data_, message_slice);
+    message_data_.push_back(message_slice);
   }
   void SetSuffix(Metadata suffix_metadata) {
     if (is_client_) GPR_ASSERT(suffix_metadata.empty());
@@ -120,7 +132,7 @@ class Transaction {
   absl::string_view GetMethodRef() const {
     return grpc_core::StringViewFromSlice(method_ref_);
   }
-  grpc_slice_buffer* GetMessageData() { return &message_data_; }
+  const SliceBuffer& GetMessageData() { return message_data_; }
   absl::string_view GetStatusDesc() const {
     return grpc_core::StringViewFromSlice(status_desc_);
   }
@@ -133,7 +145,7 @@ class Transaction {
   Metadata prefix_metadata_;
   Metadata suffix_metadata_;
   grpc_slice method_ref_;
-  grpc_slice_buffer message_data_;
+  SliceBuffer message_data_;
   grpc_slice status_desc_;
 
   int flags_ = 0;

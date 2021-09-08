@@ -73,8 +73,7 @@ absl::Status WireWriterImpl::RpcCall(Transaction tx) {
   GPR_ASSERT(tx.GetTxCode() >= kFirstCallId);
   int& seq = seq_num_[tx.GetTxCode()];
   // If there's no message data or the message data is completely empty.
-  if ((tx.GetFlags() & kFlagMessageData) == 0 ||
-      tx.GetMessageData()->count == 0) {
+  if ((tx.GetFlags() & kFlagMessageData) == 0 || tx.GetMessageData().empty()) {
     // Fast path: send data in one transaction.
     RETURN_IF_ERROR(binder_->PrepareTransaction());
     WritableParcel* parcel = binder_->GetWritableParcel();
@@ -97,11 +96,11 @@ absl::Status WireWriterImpl::RpcCall(Transaction tx) {
   // Slow path: we have non-empty message data to be sent.
   int original_flags = tx.GetFlags();
   GPR_ASSERT(original_flags & kFlagMessageData);
-  grpc_slice_buffer* buffer = tx.GetMessageData();
-  GPR_ASSERT(buffer->count > 0);
+  const SliceBuffer& buffer = tx.GetMessageData();
+  GPR_ASSERT(!buffer.empty());
   bool is_first = true;
-  while (buffer->count > 0) {
-    grpc_slice slice = grpc_slice_buffer_take_first(buffer);
+  for (size_t i = 0; i < buffer.size(); ++i) {
+    grpc_slice slice = buffer[i];
     absl::string_view data = grpc_core::StringViewFromSlice(slice);
     size_t ptr = 0, len = data.size();
     // The condition on the right is a small hack for empty messages. We will
@@ -122,7 +121,7 @@ absl::Status WireWriterImpl::RpcCall(Transaction tx) {
         }
         is_first = false;
       }
-      if (buffer->count > 0 || ptr + kBlockSize < len) {
+      if (i + 1 < buffer.size() || ptr + kBlockSize < len) {
         // We can't complete in this transaction.
         flags |= kFlagMessageDataIsPartial;
       } else {

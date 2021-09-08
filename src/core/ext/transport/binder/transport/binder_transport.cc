@@ -132,10 +132,11 @@ static void perform_stream_op(grpc_transport* gt, grpc_stream* gs,
 
         // Only client send method ref.
         GPR_ASSERT(gbt->is_client);
-        tx.SetMethodRef(grpc_slice_sub(
-            GRPC_MDVALUE(md->md), 1, GRPC_SLICE_LENGTH(GRPC_MDVALUE(md->md))));
+        tx.SetMethodRef(grpc_slice_ref(grpc_slice_sub(
+            GRPC_MDVALUE(md->md), 1, GRPC_SLICE_LENGTH(GRPC_MDVALUE(md->md)))));
       } else {
-        init_md.emplace_back(GRPC_MDKEY(md->md), GRPC_MDVALUE(md->md));
+        init_md.emplace_back(grpc_slice_ref(GRPC_MDKEY(md->md)),
+                             grpc_slice_ref(GRPC_MDVALUE(md->md)));
       }
     }
     tx.SetPrefix(init_md);
@@ -182,8 +183,8 @@ static void perform_stream_op(grpc_transport* gt, grpc_stream* gs,
             grpc_core::StringViewFromSlice(GRPC_MDVALUE(md->md));
         gpr_log(GPR_INFO, "send trailing metatday key-value %s",
                 absl::StrCat(key, " ", value).c_str());
-        trailing_metadata.emplace_back(GRPC_MDKEY(md->md),
-                                       GRPC_MDVALUE(md->md));
+        trailing_metadata.emplace_back(grpc_slice_ref(GRPC_MDKEY(md->md)),
+                                       grpc_slice_ref(GRPC_MDVALUE(md->md)));
       }
     }
     // TODO(mingcl): Will we ever has key-value pair here? According to
@@ -233,7 +234,8 @@ static void perform_stream_op(grpc_transport* gt, grpc_stream* gs,
       gbs->recv_message_ready = op->payload->recv_message.recv_message_ready;
       gbs->recv_message = op->payload->recv_message.recv_message;
       gbt->transport_stream_receiver->RegisterRecvMessage(
-          gbs->tx_code, [gbs](absl::StatusOr<std::string> message) {
+          gbs->tx_code,
+          [gbs](absl::StatusOr<grpc_binder::SliceBuffer> message) {
             grpc_core::ExecCtx exec_ctx;
             GPR_ASSERT(gbs->recv_message);
             GPR_ASSERT(gbs->recv_message_ready);
@@ -254,11 +256,12 @@ static void perform_stream_op(grpc_transport* gt, grpc_stream* gs,
               }
               return;
             }
-            grpc_slice_buffer buf;
-            grpc_slice_buffer_init(&buf);
-            grpc_slice_buffer_add(&buf, grpc_slice_from_cpp_string(*message));
-
-            gbs->sbs.Init(&buf, 0);
+            grpc_slice_buffer buffer;
+            grpc_slice_buffer_init(&buffer);
+            for (grpc_slice slice : *message) {
+              grpc_slice_buffer_add(&buffer, slice);
+            }
+            gbs->sbs.Init(&buffer, 0);
             gbs->recv_message->reset(gbs->sbs.get());
             grpc_core::ExecCtx::Run(DEBUG_LOCATION, gbs->recv_message_ready,
                                     GRPC_ERROR_NONE);

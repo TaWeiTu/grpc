@@ -152,17 +152,12 @@ MATCHER_P4(TransactionMatches, flag, method_ref, initial_metadata, message_data,
     if (tx.GetPrefixMetadata() != initial_metadata) return false;
   }
   if (flag & kFlagMessageData) {
-    if (tx.GetMessageData()->count != message_data.size()) return false;
-    grpc_slice_buffer* buffer = tx.GetMessageData();
-    std::vector<grpc_slice> slices;
-    while (buffer->count > 0) {
-      slices.push_back(grpc_slice_buffer_take_first(buffer));
-    }
-    for (size_t i = 0; i < slices.size(); ++i) {
-      if (grpc_core::StringViewFromSlice(slices[i]) != message_data[i]) {
+    if (tx.GetMessageData().size() != message_data.size()) return false;
+    const SliceBuffer& buffer = tx.GetMessageData();
+    for (size_t i = 0; i < buffer.size(); ++i) {
+      if (grpc_core::StringViewFromSlice(buffer[i]) != message_data[i]) {
         return false;
       }
-      grpc_slice_buffer_add(buffer, slices[i]);
     }
   }
   return true;
@@ -543,18 +538,19 @@ TEST_F(BinderTransportTest, PerformRecvMessage) {
   MakeRecvMessage recv_message(&op);
 
   auto* gbt = reinterpret_cast<grpc_binder_transport*>(transport_);
-  const std::string kMessage = kDefaultMessage;
-  gbt->transport_stream_receiver->NotifyRecvMessage(gbs->tx_code, kMessage);
+  const grpc_slice kMessageSlice =
+      grpc_slice_from_static_string(kDefaultMessage);
+  gbt->transport_stream_receiver->NotifyRecvMessage(gbs->tx_code,
+                                                    SliceBuffer{kMessageSlice});
 
   PerformStreamOp(gbs, &op);
   exec_ctx.Flush();
   EXPECT_TRUE(recv_message.grpc_message->Next(SIZE_MAX, nullptr));
   grpc_slice slice;
   recv_message.grpc_message->Pull(&slice);
-  EXPECT_EQ(kMessage,
-            std::string(reinterpret_cast<char*>(GRPC_SLICE_START_PTR(slice)),
-                        GRPC_SLICE_LENGTH(slice)));
+  EXPECT_TRUE(grpc_slice_eq(kMessageSlice, slice));
   grpc_slice_unref_internal(slice);
+  grpc_slice_unref_internal(kMessageSlice);
 }
 
 TEST_F(BinderTransportTest, PerformRecvTrailingMetadata) {
@@ -594,8 +590,10 @@ TEST_F(BinderTransportTest, PerformRecvAll) {
   gbt->transport_stream_receiver->NotifyRecvInitialMetadata(
       gbs->tx_code, TestingMetadataToMetadata(kInitialMetadataWithMethodRef));
 
-  const std::string kMessage = kDefaultMessage;
-  gbt->transport_stream_receiver->NotifyRecvMessage(gbs->tx_code, kMessage);
+  const grpc_slice kMessageSlice =
+      grpc_slice_from_static_string(kDefaultMessage);
+  gbt->transport_stream_receiver->NotifyRecvMessage(gbs->tx_code,
+                                                    SliceBuffer{kMessageSlice});
 
   TestingMetadata trailing_metadata = kDefaultMetadata;
   constexpr int kStatus = kDefaultStatus;
@@ -612,10 +610,9 @@ TEST_F(BinderTransportTest, PerformRecvAll) {
   EXPECT_TRUE(recv_message.grpc_message->Next(SIZE_MAX, nullptr));
   grpc_slice slice;
   recv_message.grpc_message->Pull(&slice);
-  EXPECT_EQ(kMessage,
-            std::string(reinterpret_cast<char*>(GRPC_SLICE_START_PTR(slice)),
-                        GRPC_SLICE_LENGTH(slice)));
+  EXPECT_TRUE(grpc_slice_eq(kMessageSlice, slice));
   grpc_slice_unref_internal(slice);
+  grpc_slice_unref_internal(kMessageSlice);
 }
 
 TEST_F(BinderTransportTest, PerformAllOps) {
@@ -669,8 +666,10 @@ TEST_F(BinderTransportTest, PerformAllOps) {
       AppendMethodRef(kDefaultMetadata, kDefaultMethodRef);
   gbt->transport_stream_receiver->NotifyRecvInitialMetadata(
       gbs->tx_code, TestingMetadataToMetadata(kRecvInitialMetadata));
-  const std::string kRecvMessage = kDefaultMessage;
-  gbt->transport_stream_receiver->NotifyRecvMessage(gbs->tx_code, kRecvMessage);
+  const grpc_slice kRecvMessageSlice =
+      grpc_slice_from_static_string(kDefaultMessage);
+  gbt->transport_stream_receiver->NotifyRecvMessage(
+      gbs->tx_code, SliceBuffer{kRecvMessageSlice});
   const TestingMetadata kRecvTrailingMetadata = kDefaultMetadata;
   constexpr int kStatus = 0x1234;
   gbt->transport_stream_receiver->NotifyRecvTrailingMetadata(
@@ -685,10 +684,9 @@ TEST_F(BinderTransportTest, PerformAllOps) {
   EXPECT_TRUE(recv_message.grpc_message->Next(SIZE_MAX, nullptr));
   grpc_slice slice;
   recv_message.grpc_message->Pull(&slice);
-  EXPECT_EQ(kRecvMessage,
-            std::string(reinterpret_cast<char*>(GRPC_SLICE_START_PTR(slice)),
-                        GRPC_SLICE_LENGTH(slice)));
+  EXPECT_TRUE(grpc_slice_eq(kRecvMessageSlice, slice));
   grpc_slice_unref_internal(slice);
+  grpc_slice_unref_internal(kRecvMessageSlice);
 }
 
 TEST_F(BinderTransportTest, WireWriterRpcCallErrorPropagates) {

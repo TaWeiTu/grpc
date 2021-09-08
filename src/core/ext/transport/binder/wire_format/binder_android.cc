@@ -297,13 +297,13 @@ bool string_allocator(void* stringData, int32_t length, char** outBuffer) {
 
 }  // namespace
 
-absl::Status ReadableParcelAndroid::ReadByteArray(std::string* data) const {
+absl::Status ReadableParcelAndroid::ReadByteArray(grpc_slice* data) const {
   return AParcel_readByteArray(parcel_, data, byte_array_allocator) == STATUS_OK
              ? absl::OkStatus()
              : absl::InternalError("AParcel_readByteArray failed");
 }
 
-absl::Status ReadableParcelAndroid::ReadString(char data[111]) const {
+absl::Status ReadableParcelAndroid::ReadString(grpc_slice* data) const {
   return AParcel_readString(parcel_, data, string_allocator) == STATUS_OK
              ? absl::OkStatus()
              : absl::InternalError("AParcel_readString failed");
