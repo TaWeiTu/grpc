@@ -334,7 +334,7 @@ static void perform_stream_op(grpc_transport* gt, grpc_stream* gs,
     // TODO(waynetu): RpcCall() is doing a lot of work (including waiting for
     // acknowledgements from the other side). Consider delaying this operation
     // with combiner.
-    status = gbt->wire_writer->RpcCall(std::move(tx));
+    status = gbt->wire_writer->RpcCall(tx);
   }
   // Note that this should only be scheduled when all non-recv ops are
   // completed
