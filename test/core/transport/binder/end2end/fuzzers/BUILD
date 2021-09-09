@@ -30,7 +30,7 @@ grpc_cc_library(
     ],
     tags = [
         "no_mac",
-        "no_windows"
+        "no_windows",
     ],
     deps = [
         "//:gpr",
@@ -46,7 +46,7 @@ grpc_fuzzer(
     language = "C++",
     tags = [
         "no_mac",
-        "no_windows"
+        "no_windows",
     ],
     deps = [
         ":fuzzer_utils",
@@ -67,7 +67,7 @@ grpc_fuzzer(
     language = "C++",
     tags = [
         "no_mac",
-        "no_windows"
+        "no_windows",
     ],
     deps = [
         ":fuzzer_utils",
