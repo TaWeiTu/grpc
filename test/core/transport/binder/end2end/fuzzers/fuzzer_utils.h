@@ -17,8 +17,6 @@
 
 #include <fuzzer/FuzzedDataProvider.h>
 
-#include <grpc/support/log.h>
-
 #include <memory>
 #include <string>
 #include <thread>
@@ -26,6 +24,9 @@
 
 #include "absl/memory/memory.h"
 #include "absl/status/status.h"
+
+#include <grpc/support/log.h>
+
 #include "src/core/ext/transport/binder/wire_format/binder.h"
 #include "src/core/ext/transport/binder/wire_format/wire_reader.h"
 
