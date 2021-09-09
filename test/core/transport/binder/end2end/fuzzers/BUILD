@@ -27,7 +27,7 @@ grpc_fuzzer(
     language = "C++",
     tags = [
         "no_mac",
-        "no_windows"
+        "no_windows",
     ],
     deps = [
         "//:gpr",
